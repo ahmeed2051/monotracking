@@ -1,0 +1,7 @@
+{
+  "name": "Monopoly Offline Money Tracker",
+  "description": "A local-only, peer-to-peer Monopoly money tracker with a multi-player consensus system for secure, offline gameplay. Transactions are proposed and voted on by players to ensure fairness and prevent cheating, all without needing an internet connection.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
