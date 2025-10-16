@@ -1,14 +1,15 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useGame } from '../contexts/GameContext';
 import PlayerCard from '../components/PlayerCard';
-import LedgerDisplay from '../components/LedgerDisplay';
 import Button from '../components/Button';
 import QRCodeDisplay from '../components/QRCodeDisplay';
 import VoteBanner from '../components/VoteBanner';
-import { Proposal, TransactionType, Vote } from '../types';
-import { BANK_PLAYER_ID } from '../constants';
+import { Proposal, TransactionPayload, TransactionType, Vote, Player } from '../types';
+import ActivityFeed from '../components/ActivityFeed';
+import TransactionModal from '../components/TransactionModal';
+import AddPlayerModal from '../components/AddPlayerModal';
+import { PLAYER_COLORS } from '../constants';
 
 const GameTable: React.FC = () => {
   const { state: gameState, dispatch } = useGame();
@@ -16,61 +17,99 @@ const GameTable: React.FC = () => {
   const { joinInfo, isHost, myId } = location.state || {};
 
   const [showInviteModal, setShowInviteModal] = useState(isHost);
+  const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+  const [isAddPlayerModalOpen, setIsAddPlayerModalOpen] = useState(false);
   
   const me = gameState.players.find(p => p.id === myId);
-  const myVote = gameState.votes.find(v => v.voterId === myId);
 
-  const handleProposeTransaction = () => {
-    // This is a sample transaction. A real UI would have forms for this.
-    const otherPlayer = gameState.players.find(p => p.id !== myId);
-    if (!me || !otherPlayer) return;
+  const handleProposeTransaction = (payload: TransactionPayload, type: TransactionType) => {
+    if (!me) return;
 
     const proposal: Proposal = {
       id: `prop_${Date.now()}`,
       proposerId: myId,
-      type: TransactionType.PAY_PLAYER,
-      payload: {
-        fromPlayerId: myId,
-        toPlayerId: otherPlayer.id,
-        amount: 50,
-        reason: 'Rent for Boardwalk'
-      },
+      type: type,
+      payload,
       timestamp: Date.now(),
       signature: 'signed_by_' + myId // Placeholder for real signature
     };
-    (window as any).broadcastAction({ type: 'START_PROPOSAL', payload: proposal });
+    
+    const action = { type: 'START_PROPOSAL' as const, payload: proposal };
+    dispatch(action); // Dispatch locally for immediate UI update
+    (window as any).broadcastAction(action); // Broadcast to peers
+    
+    setIsTransactionModalOpen(false);
   };
   
-  const handleVote = (approved: boolean) => {
-    if (!gameState.activeProposal || !myId) return;
+  const handlePlayerVote = (voterId: string, approved: boolean) => {
+    if (!gameState.activeProposal) return;
     const vote: Vote = {
       proposalId: gameState.activeProposal.id,
-      voterId: myId,
+      voterId,
       approved,
     };
-    (window as any).broadcastAction({ type: 'ADD_VOTE', payload: vote });
+    
+    const action = { type: 'ADD_VOTE' as const, payload: vote };
+    dispatch(action); // Dispatch locally
+    (window as any).broadcastAction(action); // Broadcast to peers
   };
   
-  // In a real distributed system, each node would run this logic. Here, we simplify.
-  // Let's assume the host is responsible for tallying votes for this simulation.
-  if (isHost && gameState.activeProposal && gameState.votes.length >= gameState.players.length) {
-    const approvals = gameState.votes.filter(v => v.approved).length;
-    const quorum = Math.floor(gameState.players.length / 2) + 1;
+  const handleAddPlayer = (playerName: string) => {
+    const newPlayer: Player = {
+      id: `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: playerName,
+      color: PLAYER_COLORS[gameState.players.length % PLAYER_COLORS.length] || '#cccccc',
+      isHost: false,
+      balance: gameState.settings.startingBalance || 1500,
+      isBanker: false,
+    };
     
-    if (approvals >= quorum) {
-        (window as any).broadcastAction({ type: 'COMMIT_PROPOSAL' });
-    } else {
-        (window as any).broadcastAction({ type: 'REJECT_PROPOSAL' });
-        (window as any).broadcastAction({ type: 'ADD_LEDGER_ENTRY', payload: { type: 'SYSTEM', message: `Proposal rejected by vote.` } });
+    const addPlayerAction = { type: 'ADD_PLAYER' as const, payload: newPlayer };
+    const addLedgerAction = { type: 'ADD_LEDGER_ENTRY' as const, payload: { type: 'SYSTEM' as const, message: `${newPlayer.name} has joined the game.` } };
+
+    // Dispatch locally first to update the current user's UI
+    dispatch(addPlayerAction);
+    dispatch(addLedgerAction);
+    
+    // Then broadcast to other peers
+    (window as any).broadcastAction(addPlayerAction);
+    (window as any).broadcastAction(addLedgerAction);
+    
+    setIsAddPlayerModalOpen(false);
+  };
+
+  // In a real distributed system, each node would run this logic. Here, we simplify.
+  // We assume the host is responsible for tallying votes for this simulation.
+  // This logic is now in a useEffect to prevent issues with re-renders.
+  useEffect(() => {
+    if (isHost && gameState.activeProposal && gameState.votes.length >= gameState.players.length) {
+      const approvals = gameState.votes.filter(v => v.approved).length;
+      const quorum = Math.floor(gameState.players.length / 2) + 1;
+      
+      if (approvals >= quorum) {
+          const action = { type: 'COMMIT_PROPOSAL' as const };
+          dispatch(action); // Dispatch locally for host
+          (window as any).broadcastAction(action); // Broadcast result
+      } else {
+          const rejectAction = { type: 'REJECT_PROPOSAL' as const };
+          const ledgerAction = { type: 'ADD_LEDGER_ENTRY' as const, payload: { type: 'SYSTEM' as const, message: `Proposal rejected by vote.` } };
+          dispatch(rejectAction); // Dispatch locally for host
+          dispatch(ledgerAction);
+          (window as any).broadcastAction(rejectAction); // Broadcast result
+          (window as any).broadcastAction(ledgerAction);
+      }
     }
-  }
+  }, [isHost, gameState.activeProposal, gameState.votes, gameState.players, dispatch]);
 
 
   return (
-    <div className="container mx-auto p-4 pb-32">
-      <header className="flex justify-between items-center mb-6">
+    <div className="container mx-auto p-4 pb-48">
+      <header className="flex flex-wrap gap-4 justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-bank-green dark:text-bank-light-green">Game Table</h1>
-        <Button variant="secondary" onClick={() => setShowInviteModal(true)}>Invite Players</Button>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <Button variant="secondary" onClick={() => setIsAddPlayerModalOpen(true)}>Add Player</Button>
+          <Button variant="secondary" onClick={() => setShowInviteModal(true)}>Invite (QR)</Button>
+        </div>
       </header>
 
       <main className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -84,13 +123,13 @@ const GameTable: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          <h2 className="text-2xl font-semibold">Actions</h2>
+          <h2 className="text-2xl font-semibold">Game Log</h2>
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md space-y-2">
-            <Button className="w-full" onClick={handleProposeTransaction} disabled={!me || !!gameState.activeProposal}>Propose Test Payment</Button>
-            <Button className="w-full" variant="secondary" disabled={!me}>Pass Go (+$200)</Button>
-            <Button className="w-full" variant="danger" disabled={!me}>Pay Tax ($100)</Button>
+            <Button className="w-full" onClick={() => setIsTransactionModalOpen(true)} disabled={!me || !!gameState.activeProposal}>
+              Propose Transaction
+            </Button>
           </div>
-          <LedgerDisplay entries={gameState.ledger} />
+          <ActivityFeed entries={gameState.ledger} />
         </div>
       </main>
 
@@ -98,8 +137,8 @@ const GameTable: React.FC = () => {
         <VoteBanner 
             proposal={gameState.activeProposal} 
             players={gameState.players}
-            onVote={handleVote}
-            hasVoted={!!myVote}
+            votes={gameState.votes}
+            onPlayerVote={handlePlayerVote}
         />
       )}
 
@@ -112,6 +151,23 @@ const GameTable: React.FC = () => {
             <Button className="mt-8" onClick={() => setShowInviteModal(false)}>Close</Button>
           </div>
         </div>
+      )}
+      
+      {isTransactionModalOpen && me && (
+        <TransactionModal 
+            me={me}
+            players={gameState.players}
+            settings={gameState.settings}
+            onPropose={handleProposeTransaction}
+            onClose={() => setIsTransactionModalOpen(false)}
+        />
+      )}
+
+      {isAddPlayerModalOpen && (
+        <AddPlayerModal 
+            onAddPlayer={handleAddPlayer}
+            onClose={() => setIsAddPlayerModalOpen(false)}
+        />
       )}
     </div>
   );

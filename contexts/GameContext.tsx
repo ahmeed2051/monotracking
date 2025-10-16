@@ -1,6 +1,5 @@
-
 import React, { createContext, useReducer, Dispatch, ReactNode, useContext, useEffect, useState, useCallback } from 'react';
-import { GameState, GamePhase, Player, LedgerEntry, Proposal, Vote, GameSettings } from '../types';
+import { GameState, GamePhase, Player, LedgerEntry, Proposal, Vote, GameSettings, TransactionType } from '../types';
 import { BANK_PLAYER_ID, DEFAULT_GAME_SETTINGS } from '../constants';
 
 type GameAction =
@@ -56,20 +55,37 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'COMMIT_PROPOSAL':
         if (!state.activeProposal) return state;
         const { payload } = state.activeProposal;
+
+        const fromPlayer = state.players.find(p => p.id === payload.fromPlayerId);
+        const toPlayer = state.players.find(p => p.id === payload.toPlayerId);
+
         const newPlayers = state.players.map(p => {
-            if (p.id === payload.fromPlayerId) {
+            // Debit fromPlayer if they are not the bank
+            if (p.id === payload.fromPlayerId && payload.fromPlayerId !== BANK_PLAYER_ID) {
                 return { ...p, balance: p.balance - payload.amount };
             }
-            if (p.id === payload.toPlayerId) {
+            // Credit toPlayer if they are not the bank
+            if (p.id === payload.toPlayerId && payload.toPlayerId !== BANK_PLAYER_ID) {
                 return { ...p, balance: p.balance + payload.amount };
             }
             return p;
         });
-        const ledgerMessage = payload.toPlayerId === BANK_PLAYER_ID 
-            ? `${newPlayers.find(p=>p.id === payload.fromPlayerId)?.name} paid the bank $${payload.amount}. Reason: ${payload.reason}`
-            : payload.fromPlayerId === BANK_PLAYER_ID
-            ? `${newPlayers.find(p=>p.id === payload.toPlayerId)?.name} received $${payload.amount} from the bank. Reason: ${payload.reason}`
-            : `${newPlayers.find(p=>p.id === payload.fromPlayerId)?.name} paid ${newPlayers.find(p=>p.id === payload.toPlayerId)?.name} $${payload.amount}. Reason: ${payload.reason}`;
+        
+        const fromName = fromPlayer ? fromPlayer.name : 'The Bank';
+        const toName = toPlayer ? toPlayer.name : 'The Bank';
+        
+        let ledgerMessage = '';
+
+        if (state.activeProposal.type === TransactionType.MANUAL_ADJUST) {
+            if (payload.fromPlayerId === BANK_PLAYER_ID) { // Addition
+                ledgerMessage = `Added $${payload.amount} to ${toName}'s balance. Reason: ${payload.reason}`;
+            } else { // Deduction
+                ledgerMessage = `Deducted $${payload.amount} from ${fromName}'s balance. Reason: ${payload.reason}`;
+            }
+        } else {
+            ledgerMessage = `${fromName} paid ${toName} $${payload.amount}. Reason: ${payload.reason}`;
+        }
+
 
         return {
             ...state,
