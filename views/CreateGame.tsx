@@ -8,6 +8,7 @@ import { DEFAULT_GAME_SETTINGS, PLAYER_COLORS } from '../constants';
 const CreateGame: React.FC = () => {
   const [hostName, setHostName] = useState('');
   const [startingBalance, setStartingBalance] = useState(DEFAULT_GAME_SETTINGS.startingBalance);
+  const [passGoAmount, setPassGoAmount] = useState(DEFAULT_GAME_SETTINGS.passGoAmount);
   const { dispatch } = useGame();
   const navigate = useNavigate();
 
@@ -35,7 +36,7 @@ const CreateGame: React.FC = () => {
         type: 'SETUP_GAME', 
         payload: { 
             hostPlayer, 
-            settings: { ...DEFAULT_GAME_SETTINGS, startingBalance },
+            settings: { ...DEFAULT_GAME_SETTINGS, startingBalance, passGoAmount },
             gameId,
         }
     });
@@ -77,6 +78,21 @@ const CreateGame: React.FC = () => {
               onChange={(e) => setStartingBalance(parseInt(e.target.value, 10))}
               className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-bank-green focus:border-bank-green"
               required
+              step="100"
+            />
+          </div>
+          <div>
+            <label htmlFor="passGoAmount" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Pass Go Amount
+            </label>
+            <input
+              type="number"
+              id="passGoAmount"
+              value={passGoAmount}
+              onChange={(e) => setPassGoAmount(parseInt(e.target.value, 10))}
+              className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-bank-green focus:border-bank-green"
+              required
+              step="50"
             />
           </div>
           <Button type="submit" className="w-full text-lg">
